@@ -1,0 +1,26 @@
+bundle:
+  name: browser-runtime-behavior
+  version: 0.1.0
+  description: |
+    Core browser runtime behavior providing browser-specific tools and capabilities.
+    Includes the browser-developer agent for building browser Amplifier integrations.
+
+# Browser-compatible tools
+tools:
+  # Include existing tools that work in browser environment
+  - module: tool-todo
+    source: git+https://github.com/microsoft/amplifier-module-tool-todo@main
+  
+  # Browser-specific storage tool (localStorage/IndexedDB)
+  - module: tool-browser-storage
+    source: browser:modules/tool-browser-storage
+
+# Browser development expert agent
+agents:
+  include:
+    - browser:browser-developer
+
+# Inject browser-specific context
+context:
+  include:
+    - browser:context/browser-guide.md
