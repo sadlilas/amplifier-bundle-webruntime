@@ -4,6 +4,38 @@ This document provides context for AI assistants working with browser-based Ampl
 
 ---
 
+## IMPORTANT: Purpose of This Bundle
+
+**This bundle is for building Amplifier applications that run in browsers using Pyodide.**
+
+It is **NOT** for:
+- Raw JavaScript WebLLM apps
+- Pure JS chat interfaces without Amplifier
+- Standalone LLM demos that bypass Amplifier
+
+### The Default Architecture
+
+When someone asks for "WebLLM in browser", "browser AI", or "local LLM chat", the answer is:
+
+```
+Amplifier + Pyodide + WebLLM provider
+```
+
+**NOT** raw JavaScript calling WebLLM directly.
+
+### Why Amplifier in Browser?
+
+Using Amplifier (via Pyodide) instead of raw JavaScript provides:
+- **Session management** - Conversation history, context handling
+- **Tool system** - Browser-storage, todo, and custom tools
+- **Provider abstraction** - Switch between WebLLM, OpenAI, Anthropic seamlessly
+- **Hooks** - Logging, approval gates, observability
+- **Consistency** - Same Amplifier patterns work in CLI and browser
+
+Raw JavaScript WebLLM is fine for demos, but **real applications should use Amplifier**.
+
+---
+
 ## What is Browser Amplifier?
 
 Browser Amplifier runs the full Amplifier stack (amplifier-core, tools, providers) inside a web browser using:
