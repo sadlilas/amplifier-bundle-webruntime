@@ -423,3 +423,560 @@ Check initialization timing:
 - Pyodide load time
 - Package installation
 - Model loading
+
+---
+
+## Advanced Patterns (from amplifier-web)
+
+These patterns are derived from the production amplifier-web project and adapted for browser-based Pyodide implementations.
+
+### Web Worker Architecture
+
+**Run Pyodide in a Web Worker to keep the UI responsive:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Main Thread (UI)                                           │
+│  ├─ React/Vue/vanilla JS                                   │
+│  ├─ State management (Zustand/Redux)                       │
+│  └─ postMessage ↔ worker                                   │
+├─────────────────────────────────────────────────────────────┤
+│  Web Worker                                                 │
+│  ├─ Pyodide runtime                                        │
+│  ├─ amplifier-core session                                 │
+│  └─ Provider bridge (WebLLM or API)                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Why Web Workers:**
+- Python execution doesn't block UI
+- Model inference runs in background
+- UI stays responsive during long operations
+- Clean separation of concerns
+
+**Worker Setup:**
+
+```javascript
+// main.js - Main thread
+const worker = new Worker('amplifier-worker.js', { type: 'module' });
+
+worker.onmessage = (event) => {
+    const message = event.data;
+    switch (message.type) {
+        case 'content_delta':
+            appendToChat(message.delta);
+            break;
+        case 'tool_call':
+            showToolProgress(message.tool_name);
+            break;
+        case 'approval_request':
+            showApprovalModal(message);
+            break;
+        // ... handle other message types
+    }
+};
+
+function sendPrompt(text) {
+    worker.postMessage({ type: 'prompt', content: text });
+}
+```
+
+```javascript
+// amplifier-worker.js - Web Worker
+importScripts('https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js');
+
+let pyodide = null;
+
+async function init() {
+    pyodide = await loadPyodide();
+    await pyodide.loadPackage('micropip');
+    await pyodide.runPythonAsync(`
+        import micropip
+        await micropip.install('amplifier-core')
+    `);
+    
+    // Set up bridge to post messages back to main thread
+    pyodide.globals.set('post_to_ui', (msgJson) => {
+        self.postMessage(JSON.parse(msgJson));
+    });
+    
+    self.postMessage({ type: 'ready' });
+}
+
+self.onmessage = async (event) => {
+    const message = event.data;
+    if (message.type === 'prompt') {
+        await pyodide.runPythonAsync(`
+            await session.execute("${message.content.replace(/"/g, '\\"')}")
+        `);
+    }
+};
+
+init();
+```
+
+---
+
+### Message Protocol Types
+
+**TypeScript types for Worker ↔ UI communication (adapted from amplifier-web):**
+
+```typescript
+// Worker → UI messages
+export type WorkerMessage =
+    | ContentStartMessage
+    | ContentDeltaMessage
+    | ContentEndMessage
+    | ToolCallMessage
+    | ToolResultMessage
+    | ApprovalRequestMessage
+    | ErrorMessage
+    | ReadyMessage;
+
+// UI → Worker messages  
+export type UIMessage =
+    | PromptMessage
+    | ApprovalResponseMessage
+    | CancelMessage;
+
+// Streaming content
+interface ContentStartMessage {
+    type: 'content_start';
+    block_type: 'text' | 'thinking' | 'tool_use';
+    index: number;
+}
+
+interface ContentDeltaMessage {
+    type: 'content_delta';
+    index: number;
+    delta: string;
+    block_type?: string;
+}
+
+interface ContentEndMessage {
+    type: 'content_end';
+    index: number;
+    content: string;
+    block_type?: string;
+}
+
+// Tool lifecycle
+interface ToolCallMessage {
+    type: 'tool_call';
+    tool_name: string;
+    tool_call_id: string;
+    arguments: Record<string, unknown>;
+    status: 'pending' | 'running' | 'complete' | 'error';
+}
+
+interface ToolResultMessage {
+    type: 'tool_result';
+    tool_call_id: string;
+    output: string;
+    success: boolean;
+    error?: string;
+}
+
+// Approval flow
+interface ApprovalRequestMessage {
+    type: 'approval_request';
+    id: string;
+    prompt: string;
+    options: string[];
+    timeout: number;
+    default: string;
+}
+
+interface ApprovalResponseMessage {
+    type: 'approval_response';
+    id: string;
+    choice: string;
+}
+
+// User input
+interface PromptMessage {
+    type: 'prompt';
+    content: string;
+    images?: string[];
+}
+
+interface CancelMessage {
+    type: 'cancel';
+    immediate?: boolean;
+}
+```
+
+---
+
+### Event-to-Message Mapping
+
+**Map Amplifier events to UI messages (Python side in worker):**
+
+```python
+def map_event_to_message(event: str, data: dict) -> dict | None:
+    """
+    Map Amplifier event to Worker message format.
+    Called from hook that observes session events.
+    """
+    
+    # Content block streaming
+    if event == "content_block:start":
+        block_type = data.get("block_type", "text")
+        index = data.get("block_index", 0)
+        return {
+            "type": "content_start",
+            "block_type": block_type,
+            "index": index
+        }
+    
+    elif event == "content_block:delta":
+        index = data.get("block_index", 0)
+        delta = data.get("delta", {})
+        text = delta.get("text", "") if isinstance(delta, dict) else str(delta)
+        return {
+            "type": "content_delta",
+            "index": index,
+            "delta": text
+        }
+    
+    elif event == "content_block:end":
+        index = data.get("block_index", 0)
+        block = data.get("block", {})
+        content = block.get("text", "") if isinstance(block, dict) else ""
+        return {
+            "type": "content_end",
+            "index": index,
+            "content": content
+        }
+    
+    # Tool lifecycle
+    elif event == "tool:pre":
+        return {
+            "type": "tool_call",
+            "tool_name": data.get("tool_name", "unknown"),
+            "tool_call_id": data.get("tool_call_id", ""),
+            "arguments": data.get("tool_input", {}),
+            "status": "running"
+        }
+    
+    elif event == "tool:post":
+        result = data.get("result", {})
+        return {
+            "type": "tool_result",
+            "tool_call_id": data.get("tool_call_id", ""),
+            "output": result.get("output", ""),
+            "success": result.get("success", True)
+        }
+    
+    return None
+```
+
+**Hook to bridge events to UI:**
+
+```python
+import json
+
+class WorkerBridgeHook:
+    """Hook that forwards Amplifier events to the UI via postMessage."""
+    
+    def __init__(self, post_fn):
+        self.post_fn = post_fn  # JavaScript function to call
+    
+    async def __call__(self, event: str, data: dict):
+        message = map_event_to_message(event, data)
+        if message:
+            self.post_fn(json.dumps(message))
+        return None  # Don't modify event flow
+```
+
+---
+
+### Approval System Pattern
+
+**Async approval handling with timeout (JavaScript side):**
+
+```javascript
+class ApprovalManager {
+    constructor(worker) {
+        this.worker = worker;
+        this.pending = new Map();  // id -> { resolve, reject, timer }
+        this.cache = new Map();    // prompt hash -> choice (for "always" decisions)
+    }
+    
+    // Called when worker requests approval
+    handleRequest(request) {
+        const { id, prompt, options, timeout, default: defaultChoice } = request;
+        
+        // Check cache for "Allow always" decisions
+        const cacheKey = this.hashPrompt(prompt, options);
+        if (this.cache.has(cacheKey)) {
+            this.respond(id, this.cache.get(cacheKey));
+            return;
+        }
+        
+        // Show UI and wait for response
+        this.showApprovalUI(request);
+        
+        // Set timeout
+        const timer = setTimeout(() => {
+            this.respond(id, this.resolveDefault(defaultChoice, options));
+            this.hideApprovalUI();
+        }, timeout * 1000);
+        
+        this.pending.set(id, { timer });
+    }
+    
+    // Called when user clicks an option
+    userRespond(id, choice) {
+        const pending = this.pending.get(id);
+        if (pending) {
+            clearTimeout(pending.timer);
+            this.pending.delete(id);
+        }
+        
+        // Cache "always" decisions
+        if (choice.toLowerCase().includes('always')) {
+            // Would need to store the original prompt to cache properly
+        }
+        
+        this.respond(id, choice);
+        this.hideApprovalUI();
+    }
+    
+    respond(id, choice) {
+        this.worker.postMessage({
+            type: 'approval_response',
+            id: id,
+            choice: choice
+        });
+    }
+    
+    resolveDefault(defaultAction, options) {
+        for (const option of options) {
+            const lower = option.toLowerCase();
+            if (defaultAction === 'allow' && (lower.includes('allow') || lower.includes('yes'))) {
+                return option;
+            }
+            if (defaultAction === 'deny' && (lower.includes('deny') || lower.includes('no'))) {
+                return option;
+            }
+        }
+        return defaultAction === 'deny' ? options[options.length - 1] : options[0];
+    }
+    
+    hashPrompt(prompt, options) {
+        return `${prompt}:${options.join(',')}`;
+    }
+}
+```
+
+---
+
+### UI State Management (Zustand Pattern)
+
+**Manage chat state with Zustand (React example):**
+
+```typescript
+import { create } from 'zustand';
+
+interface ContentBlock {
+    type: 'text' | 'thinking' | 'tool_use';
+    content: string;
+    isStreaming?: boolean;
+    order?: number;
+}
+
+interface ToolCall {
+    id: string;
+    name: string;
+    arguments: Record<string, unknown>;
+    status: 'pending' | 'running' | 'complete' | 'error';
+    result?: string;
+    order?: number;
+}
+
+interface Message {
+    id: string;
+    role: 'user' | 'assistant';
+    content: ContentBlock[];
+    toolCalls?: ToolCall[];
+    timestamp: Date;
+}
+
+interface ChatStore {
+    messages: Message[];
+    isStreaming: boolean;
+    
+    addUserMessage: (text: string) => void;
+    startAssistantMessage: () => void;
+    appendToCurrentBlock: (delta: string) => void;
+    endCurrentBlock: (content: string) => void;
+    addToolCall: (toolCall: ToolCall) => void;
+    updateToolCall: (id: string, update: Partial<ToolCall>) => void;
+    setStreaming: (streaming: boolean) => void;
+}
+
+export const useChatStore = create<ChatStore>((set) => ({
+    messages: [],
+    isStreaming: false,
+    
+    addUserMessage: (text) => set((state) => ({
+        messages: [...state.messages, {
+            id: crypto.randomUUID(),
+            role: 'user',
+            content: [{ type: 'text', content: text }],
+            timestamp: new Date()
+        }]
+    })),
+    
+    startAssistantMessage: () => set((state) => ({
+        messages: [...state.messages, {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: [],
+            toolCalls: [],
+            timestamp: new Date()
+        }],
+        isStreaming: true
+    })),
+    
+    appendToCurrentBlock: (delta) => set((state) => {
+        const messages = [...state.messages];
+        const last = messages[messages.length - 1];
+        if (last?.role === 'assistant') {
+            const blocks = [...last.content];
+            if (blocks.length > 0) {
+                blocks[blocks.length - 1] = {
+                    ...blocks[blocks.length - 1],
+                    content: blocks[blocks.length - 1].content + delta
+                };
+            }
+            messages[messages.length - 1] = { ...last, content: blocks };
+        }
+        return { messages };
+    }),
+    
+    // ... additional methods
+    
+    setStreaming: (streaming) => set({ isStreaming: streaming })
+}));
+```
+
+---
+
+### Timeline Rendering Pattern
+
+**Interleave content blocks and tool calls chronologically:**
+
+```typescript
+type TimelineItem =
+    | { kind: 'content'; block: ContentBlock; order: number }
+    | { kind: 'tool'; toolCall: ToolCall; order: number };
+
+function buildTimeline(message: Message): TimelineItem[] {
+    const items: TimelineItem[] = [];
+    
+    // Add content blocks
+    message.content.forEach((block, index) => {
+        items.push({
+            kind: 'content',
+            block,
+            order: block.order ?? index
+        });
+    });
+    
+    // Add tool calls
+    message.toolCalls?.forEach((toolCall, index) => {
+        items.push({
+            kind: 'tool',
+            toolCall,
+            order: toolCall.order ?? (1000 + index)
+        });
+    });
+    
+    // Sort by order for chronological display
+    return items.sort((a, b) => a.order - b.order);
+}
+
+// In React component
+function MessageBubble({ message }: { message: Message }) {
+    const timeline = buildTimeline(message);
+    
+    return (
+        <div className="message">
+            {timeline.map((item, i) => (
+                item.kind === 'content' 
+                    ? <ContentBlockView key={i} block={item.block} />
+                    : <ToolCallView key={i} toolCall={item.toolCall} />
+            ))}
+        </div>
+    );
+}
+```
+
+---
+
+### Tool Call UI Pattern
+
+**Collapsible tool calls with smart previews:**
+
+```typescript
+function ToolCallView({ toolCall }: { toolCall: ToolCall }) {
+    const [expanded, setExpanded] = useState(false);
+    
+    const statusIcon = {
+        pending: '⏳',
+        running: '⏳', 
+        complete: '✓',
+        error: '✗'
+    }[toolCall.status];
+    
+    // Smart preview based on tool type
+    function getPreview(name: string, args: Record<string, unknown>): string {
+        switch (name) {
+            case 'bash':
+                return truncate(String(args.command || ''), 60);
+            case 'read_file':
+                return String(args.file_path || '');
+            case 'web_search':
+                return `"${truncate(String(args.query || ''), 40)}"`;
+            default:
+                return Object.keys(args).join(', ');
+        }
+    }
+    
+    return (
+        <div className="tool-call">
+            <button onClick={() => setExpanded(!expanded)}>
+                <span>{expanded ? '▼' : '▶'}</span>
+                <span>{statusIcon}</span>
+                <span className="tool-name">{toolCall.name}</span>
+                {!expanded && (
+                    <span className="preview">{getPreview(toolCall.name, toolCall.arguments)}</span>
+                )}
+            </button>
+            {expanded && (
+                <div className="tool-details">
+                    <pre>{JSON.stringify(toolCall.arguments, null, 2)}</pre>
+                    {toolCall.result && <pre>{toolCall.result}</pre>}
+                </div>
+            )}
+        </div>
+    );
+}
+```
+
+---
+
+## Reference: amplifier-web
+
+These patterns are adapted from [amplifier-web](https://github.com/bkrabach/amplifier-web), a server-based Amplifier UI. While amplifier-web uses a Python backend with WebSocket, the patterns translate well to browser-based Pyodide with Web Workers:
+
+| amplifier-web | Browser Equivalent |
+|---------------|-------------------|
+| WebSocket | postMessage to Worker |
+| FastAPI backend | Pyodide in Worker |
+| Python hooks | Same hooks, different transport |
+| React frontend | Same React patterns |
+
+The key insight: **The message protocol and UI patterns are transport-agnostic** - they work whether the Python runs on a server or in a browser via Pyodide.
