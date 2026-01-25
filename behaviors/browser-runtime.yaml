@@ -12,8 +12,9 @@ tools:
     source: git+https://github.com/microsoft/amplifier-module-tool-todo@main
   
   # Browser-specific storage tool (localStorage/IndexedDB)
+  # NOTE: This tool requires JS bridge setup - won't work in CLI, only browser
   - module: tool-browser-storage
-    source: browser:modules/tool-browser-storage
+    source: git+https://github.com/microsoft/amplifier-bundle-browser@main#subdirectory=modules/tool-browser-storage
 
 # Browser development expert agent
 agents:
