@@ -1649,3 +1649,93 @@ These patterns are adapted from [amplifier-web](https://github.com/bkrabach/ampl
 | React frontend | Same React patterns |
 
 The key insight: **The message protocol and UI patterns are transport-agnostic** - they work whether the Python runs on a server or in a browser via Pyodide.
+
+---
+
+## Design Expectations
+
+**Do NOT just copy the minimal example.** Use examples as REFERENCE for the technical patterns, but create your own design.
+
+### Minimum UI Requirements
+
+Every browser Amplifier app should include:
+
+| Requirement | Why |
+|-------------|-----|
+| **Markdown rendering** | LLM responses include code blocks, lists, bold text |
+| **Streaming indicator** | Users need feedback while model generates |
+| **Welcome message** | Explain what the app does and its capabilities |
+| **Error handling UI** | WebGPU failures, OOM errors need clear messages |
+| **Model info display** | Show which model is loaded |
+
+### Markdown Rendering (Required)
+
+**At minimum, support these patterns:**
+
+```javascript
+// Simple markdown renderer for chat (no library needed)
+function renderMarkdown(text) {
+    return text
+        // Code blocks (```lang ... ```)
+        .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>')
+        // Inline code (`code`)
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        // Bold (**text**)
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        // Italic (*text*)
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        // Links [text](url)
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+        // Line breaks
+        .replace(/\n/g, '<br>');
+}
+
+// Use innerHTML with the rendered markdown
+messageDiv.innerHTML = renderMarkdown(response);
+```
+
+**For richer rendering**, include marked.js via CDN:
+```html
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+    messageDiv.innerHTML = marked.parse(response);
+</script>
+```
+
+### Streaming Cursor CSS
+
+```css
+/* Add blinking cursor while streaming */
+.streaming::after {
+    content: '▋';
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+```
+
+### Reference Implementations
+
+Use these for **design inspiration** (not copy-paste):
+
+| File | What It Demonstrates |
+|------|---------------------|
+| `webllm-chat-analysis.html` | CSS variables, error screens, streaming cursor, responsive design |
+| `amplifier-in-action.html` | Gradient accents, avatars, model selector, polished styling |
+| `amplifier-web/frontend/` | Full React patterns for markdown, tool calls, sub-sessions |
+
+### Design Checklist
+
+Before considering a browser app complete:
+
+- [ ] Markdown renders correctly (code blocks, bold, links at minimum)
+- [ ] Streaming shows visual feedback (cursor or animation)
+- [ ] Welcome message explains the app
+- [ ] Errors display user-friendly messages (not raw exceptions)
+- [ ] Model name is visible somewhere
+- [ ] Mobile-responsive (test at 375px width)
+- [ ] CSS uses variables for easy theming
+- [ ] Unique visual identity (not a copy of the example)
