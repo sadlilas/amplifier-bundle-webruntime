@@ -45,6 +45,43 @@ Using Amplifier (via Pyodide) instead of raw JavaScript provides:
 
 ---
 
+## FATAL: Never Read Binary/Encoded Data Into Context
+
+**This WILL cause timeouts and session failures.**
+
+```bash
+# ❌ FATAL - dumps 100KB+ of base64 into LLM context, causing timeout
+base64 -w0 file.whl > /tmp/encoded.b64
+cat /tmp/encoded.b64   # NEVER DO THIS
+
+# ❌ ALSO FATAL - same problem
+cat /path/to/file.wasm
+cat /path/to/large-base64-file.txt
+read_file on any .whl, .wasm, .b64, or minified .js file
+```
+
+**Why this kills sessions:** LLM context has token limits. Dumping 100KB of base64 (133K+ tokens) bloats the request to 500KB+, causing 5-minute timeouts.
+
+```bash
+# ✅ CORRECT - Write directly to output file, never read back
+base64 -w0 file.whl >> output.html
+
+# ✅ CORRECT - Use heredoc with inline base64
+cat >> output.html << 'EOF'
+<script id="data" type="text/plain">
+EOF
+base64 -w0 file.whl >> output.html
+echo '</script>' >> output.html
+
+# ✅ CORRECT - Check size BEFORE any cat/read
+ls -lh file.txt   # If > 10KB, don't cat it
+wc -c file.txt    # Check byte count
+```
+
+**Rule:** The LLM doesn't need to "see" binary data. It just needs to write code that references it.
+
+---
+
 ## CRITICAL: Read This First!
 
 **Browser Amplifier requires THREE components, not one:**
