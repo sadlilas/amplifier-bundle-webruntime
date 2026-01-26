@@ -274,14 +274,17 @@ class AmplifierBrowser {
     };
     
     try {
+      // Use execute() since BrowserAmplifierSession doesn't have execute_streaming
+      // Simulate streaming by sending content as a single chunk after completion
       const resultJson = await this._pyodide.runPythonAsync(`
         import json
         from js import _amplifierOnChunk
         
-        async def on_chunk(chunk_data):
-            _amplifierOnChunk(json.dumps(chunk_data))
+        result = await session.execute(${JSON.stringify(prompt)})
         
-        result = await session.execute_streaming(${JSON.stringify(prompt)}, on_chunk)
+        # Send the complete result as a "delta" chunk
+        _amplifierOnChunk(json.dumps({'type': 'delta', 'delta': result}))
+        
         json.dumps({
           'content': result,
           'toolCalls': [],
@@ -541,7 +544,9 @@ class AmplifierBrowser {
   async _loadBrowserModule() {
     try {
       const moduleCode = atob(EMBEDDED_ASSETS.AMPLIFIER_BROWSER_PY);
-      await this._pyodide.runPythonAsync(moduleCode);
+      // Write as a file so Python can import it
+      this._pyodide.FS.writeFile('/home/pyodide/amplifier_browser.py', moduleCode);
+      this._debug('Wrote amplifier_browser.py to Pyodide filesystem');
     } catch (error) {
       throw new AmplifierError(
         ErrorCodes.SESSION_CREATE_FAILED,
