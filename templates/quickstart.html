@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amplifier Chat</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Loading screen */
+        #loading {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            z-index: 100;
+            transition: opacity 0.3s;
+        }
+        
+        #loading.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        #loading h2 {
+            margin-bottom: 20px;
+            font-weight: 300;
+        }
+        
+        .progress-container {
+            width: 300px;
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #e94560, #ff6b6b);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        #status-text {
+            font-size: 14px;
+            color: rgba(255,255,255,0.6);
+        }
+        
+        /* Chat container */
+        #chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 800px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 0;
+        }
+        
+        .message {
+            margin-bottom: 16px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            max-width: 85%;
+            line-height: 1.5;
+        }
+        
+        .message.user {
+            background: #e94560;
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+        }
+        
+        .message.assistant {
+            background: rgba(255,255,255,0.1);
+            margin-right: auto;
+            border-bottom-left-radius: 4px;
+        }
+        
+        .message.assistant.streaming::after {
+            content: '▋';
+            animation: blink 1s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+        
+        /* Code blocks */
+        .message pre {
+            background: rgba(0,0,0,0.3);
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 8px 0;
+        }
+        
+        .message code {
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 13px;
+        }
+        
+        .message p code {
+            background: rgba(0,0,0,0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        
+        /* Input area */
+        #input-container {
+            display: flex;
+            gap: 10px;
+            padding: 20px 0;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        #user-input {
+            flex: 1;
+            padding: 14px 18px;
+            border: none;
+            border-radius: 24px;
+            background: rgba(255,255,255,0.1);
+            color: #eee;
+            font-size: 15px;
+            outline: none;
+            transition: background 0.2s;
+        }
+        
+        #user-input:focus {
+            background: rgba(255,255,255,0.15);
+        }
+        
+        #user-input::placeholder {
+            color: rgba(255,255,255,0.4);
+        }
+        
+        #send-btn {
+            padding: 14px 24px;
+            border: none;
+            border-radius: 24px;
+            background: #e94560;
+            color: white;
+            font-size: 15px;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.2s;
+        }
+        
+        #send-btn:hover {
+            background: #ff6b6b;
+        }
+        
+        #send-btn:active {
+            transform: scale(0.98);
+        }
+        
+        #send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        /* Model info */
+        #model-info {
+            text-align: center;
+            font-size: 12px;
+            color: rgba(255,255,255,0.3);
+            padding: 10px;
+        }
+        
+        /* Error display */
+        .error-message {
+            background: rgba(233, 69, 96, 0.2);
+            border: 1px solid #e94560;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 20px;
+            text-align: center;
+        }
+        
+        .error-message h3 {
+            margin-bottom: 8px;
+        }
+        
+        /* Welcome message */
+        .welcome {
+            text-align: center;
+            padding: 40px 20px;
+            color: rgba(255,255,255,0.6);
+        }
+        
+        .welcome h3 {
+            color: #eee;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading screen -->
+    <div id="loading">
+        <h2>Loading Amplifier...</h2>
+        <div class="progress-container">
+            <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <p id="status-text">Initializing...</p>
+    </div>
+    
+    <!-- Chat interface -->
+    <div id="chat-container">
+        <div id="messages">
+            <div class="welcome">
+                <h3>Amplifier Chat</h3>
+                <p>AI running locally in your browser via WebLLM</p>
+            </div>
+        </div>
+        
+        <div id="input-container">
+            <input type="text" id="user-input" placeholder="Type a message..." disabled />
+            <button id="send-btn" disabled>Send</button>
+        </div>
+        
+        <div id="model-info"></div>
+    </div>
+    
+    <!-- Pyodide -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js"></script>
+    
+    <!-- AmplifierBrowser - include the built JS file -->
+    <script src="amplifier-browser.js"></script>
+    
+    <!-- WebLLM -->
+    <script type="module">
+        import { CreateMLCEngine } from 'https://esm.run/@mlc-ai/web-llm';
+        
+        // Make it available globally for AmplifierBrowser
+        window.CreateMLCEngine = CreateMLCEngine;
+        
+        // =================================================================
+        // CONFIGURATION - Edit these values to customize your app
+        // =================================================================
+        
+        const CONFIG = {
+            // WebLLM model to use
+            model: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
+            
+            // System prompt for the assistant
+            systemPrompt: 'You are a helpful AI assistant. Be concise and friendly.',
+            
+            // Enable debug logging
+            debug: false,
+        };
+        
+        // =================================================================
+        // APP CODE - Usually no need to modify below this line
+        // =================================================================
+        
+        // UI elements
+        const loadingDiv = document.getElementById('loading');
+        const progressBar = document.getElementById('progress-bar');
+        const statusText = document.getElementById('status-text');
+        const messagesDiv = document.getElementById('messages');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const modelInfo = document.getElementById('model-info');
+        
+        let amplifier = null;
+        let currentAssistantMessage = null;
+        
+        // Progress callback
+        function onProgress(stage, percent, message) {
+            progressBar.style.width = `${percent}%`;
+            statusText.textContent = message;
+            
+            if (CONFIG.debug) {
+                console.log(`[${stage}] ${percent}% - ${message}`);
+            }
+        }
+        
+        // Error callback
+        function onError(error) {
+            console.error('AmplifierBrowser error:', error);
+            
+            loadingDiv.innerHTML = `
+                <div class="error-message">
+                    <h3>Error: ${error.code || 'Unknown'}</h3>
+                    <p>${error.message}</p>
+                    ${error.suggestion ? `<p><em>${error.suggestion}</em></p>` : ''}
+                </div>
+            `;
+        }
+        
+        // Simple markdown rendering
+        function renderMarkdown(text) {
+            return text
+                // Code blocks
+                .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>')
+                // Inline code
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                // Bold
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                // Italic
+                .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+                // Line breaks
+                .replace(/\n/g, '<br>');
+        }
+        
+        // Add message to chat
+        function addMessage(role, content, isStreaming = false) {
+            // Remove welcome message on first message
+            const welcome = messagesDiv.querySelector('.welcome');
+            if (welcome) welcome.remove();
+            
+            const div = document.createElement('div');
+            div.className = `message ${role}${isStreaming ? ' streaming' : ''}`;
+            div.innerHTML = renderMarkdown(content);
+            messagesDiv.appendChild(div);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            return div;
+        }
+        
+        // Update streaming message
+        function updateStreamingMessage(delta) {
+            if (currentAssistantMessage) {
+                const currentText = currentAssistantMessage.getAttribute('data-raw') || '';
+                const newText = currentText + delta;
+                currentAssistantMessage.setAttribute('data-raw', newText);
+                currentAssistantMessage.innerHTML = renderMarkdown(newText);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+        }
+        
+        // Send message
+        async function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text || !amplifier || amplifier.isExecuting) return;
+            
+            userInput.value = '';
+            userInput.disabled = true;
+            sendBtn.disabled = true;
+            
+            // Add user message
+            addMessage('user', text);
+            
+            // Start assistant message (streaming)
+            currentAssistantMessage = addMessage('assistant', '', true);
+            currentAssistantMessage.setAttribute('data-raw', '');
+            
+            try {
+                // Execute with streaming
+                await amplifier.executeStreaming(text, (chunk) => {
+                    if (chunk.type === 'delta' || chunk.type === 'content') {
+                        updateStreamingMessage(chunk.delta || chunk.content || '');
+                    }
+                });
+                
+                // Remove streaming indicator
+                currentAssistantMessage.classList.remove('streaming');
+                
+            } catch (error) {
+                console.error('Execution error:', error);
+                currentAssistantMessage.classList.remove('streaming');
+                currentAssistantMessage.innerHTML = `<em>Error: ${error.message}</em>`;
+            }
+            
+            currentAssistantMessage = null;
+            userInput.disabled = false;
+            sendBtn.disabled = false;
+            userInput.focus();
+        }
+        
+        // Initialize
+        async function init() {
+            try {
+                amplifier = new AmplifierBrowser({
+                    model: CONFIG.model,
+                    systemPrompt: CONFIG.systemPrompt,
+                    debug: CONFIG.debug,
+                    onProgress: onProgress,
+                    onError: onError,
+                });
+                
+                await amplifier.init();
+                
+                // Hide loading, enable chat
+                loadingDiv.classList.add('hidden');
+                userInput.disabled = false;
+                sendBtn.disabled = false;
+                userInput.focus();
+                
+                // Show model info
+                modelInfo.textContent = `Model: ${CONFIG.model}`;
+                
+            } catch (error) {
+                onError(error);
+            }
+        }
+        
+        // Event listeners
+        sendBtn.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+        
+        // Start
+        init();
+    </script>
+</body>
+</html>
