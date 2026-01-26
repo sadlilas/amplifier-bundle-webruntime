@@ -8,53 +8,93 @@ This bundle enables running Amplifier applications in web browsers using:
 
 - **Pyodide** - Python interpreter compiled to WebAssembly
 - **amplifier-core** - The Amplifier kernel running in Pyodide
-- **Browser-specific tools** - Storage, fetch, and other browser APIs
-
-**Provider-agnostic**: This bundle provides the runtime infrastructure. Compose it with your choice of provider:
-
-- [amplifier-bundle-webllm](https://github.com/microsoft/amplifier-bundle-webllm) - Local inference via WebGPU
-- OpenAI/Anthropic - Cloud APIs (user provides key)
+- **AmplifierBrowser** - JS facade that handles all complexity internally
 
 ## Quick Start
 
-**See the working example:** [`examples/minimal-webllm-chat.html`](examples/minimal-webllm-chat.html)
+### Try It Now
 
-This example is a single-file, copy-paste ready HTML that works out of the box.
+Ask an Amplifier session with this bundle:
 
-### Key Requirements
-
-Browser Amplifier requires **THREE components**:
-
-1. **Pyodide** - Python runtime in WebAssembly
-2. **amplifier-core wheel** - The kernel (embedded as base64, NOT available on PyPI)
-3. **amplifier-browser module** - Browser adapter layer (in `src/amplifier_browser.py`)
-
-### Critical Gotchas
-
-```javascript
-// ❌ WRONG - amplifier-core is NOT on PyPI
-await micropip.install('amplifier-core');
-
-// ❌ WRONG - JS proxy doesn't support kwargs
-await micropip.install('wheel.whl', {deps: false});
-
-// ✅ CORRECT - Embed wheel, use Python for deps=False
-pyodide.FS.writeFile('/tmp/amplifier_core-1.0.0-py3-none-any.whl', wheelBytes);
-await pyodide.runPythonAsync(`
-    import micropip
-    await micropip.install('emfs:/tmp/amplifier_core-1.0.0-py3-none-any.whl', deps=False)
-`);
+```
+Build me a WebLLM chat application as a single HTML file. 
+It should have a nice dark theme UI with a loading progress bar 
+while the model loads, and support streaming responses. 
+Use the Phi-3.5-mini model.
 ```
 
-### Building Your Own
+**What happens:**
+1. The `browser:browser-developer` agent handles the request
+2. It builds `amplifier-browser.js` (if not already built)
+3. Creates a complete HTML file using `AmplifierBrowser`
+4. The result works when served via HTTP (WebGPU requires localhost or HTTPS)
 
-1. Build the amplifier-core wheel: `python scripts/build-wheel.py --source ~/repos/amplifier-core --output ./dist`
-2. Base64-encode `src/amplifier_browser.py`
-3. Embed both in your HTML (see example)
-4. Set up JS bridge functions BEFORE loading amplifier-browser
-5. Use `create_session()` factory function
+**Success criteria:**
+- Uses `amplifier-browser.js` with embedded wheels
+- Uses `new AmplifierBrowser({...})` pattern
+- Does NOT try to install from PyPI (amplifier-core isn't there!)
+- Shows loading progress while model downloads
+- Chat works with streaming responses
 
-See [`context/browser-guide.md`](context/browser-guide.md) for complete documentation.
+### Manual Setup
+
+**Step 1: Build the JS bundle**
+
+```bash
+cd amplifier-bundle-browser
+python scripts/build-bundle.py \
+    --core-wheel /path/to/amplifier_core-X.X.X-py3-none-any.whl \
+    --foundation-wheel /path/to/amplifier_foundation-X.X.X-py3-none-any.whl
+# Output: dist/amplifier-browser.js (270KB with embedded assets)
+```
+
+**Step 2: Use in your HTML**
+
+```html
+<!-- Load Pyodide -->
+<script src="https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js"></script>
+
+<!-- Load the built bundle -->
+<script src="amplifier-browser.js"></script>
+
+<script type="module">
+  import { CreateMLCEngine } from 'https://esm.run/@mlc-ai/web-llm';
+  window.CreateMLCEngine = CreateMLCEngine;
+  
+  const amp = new AmplifierBrowser({
+    model: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
+    systemPrompt: 'You are a helpful assistant.',
+    onProgress: (stage, pct, msg) => console.log(msg),
+    onError: (err) => console.error(err)
+  });
+  
+  await amp.init();
+  
+  // Non-streaming
+  const result = await amp.execute('Hello!');
+  
+  // Streaming
+  await amp.executeStreaming('Tell me a story', (chunk) => {
+    if (chunk.type === 'delta') console.log(chunk.delta);
+  });
+</script>
+```
+
+### Critical: What NOT To Do
+
+```javascript
+// ❌ WRONG - amplifier-core is NOT on PyPI, this ALWAYS fails
+await micropip.install('amplifier-core');
+
+// ❌ WRONG - Manual wheel handling is error-prone
+// Let AmplifierBrowser handle it
+
+// ✅ CORRECT - Use the AmplifierBrowser facade
+const amp = new AmplifierBrowser({ model: '...' });
+await amp.init();  // Handles wheels, bridges, session internally
+```
+
+See [`templates/quickstart.html`](templates/quickstart.html) for a complete working example.
 
 ## What's Included
 
