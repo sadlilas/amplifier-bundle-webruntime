@@ -40,6 +40,12 @@ meta:
 @webruntime:context/webruntime-guide.md
 @webruntime:context/webruntime-testing.md
 
+## Key Patterns (Reference These!)
+
+@webruntime:context/patterns/chat-infrastructure.md
+@webruntime:context/patterns/embedded-assets.md
+@webruntime:context/patterns/initialization-sequence.md
+
 ---
 
 ## MANDATORY: Use Amplifier Architecture
