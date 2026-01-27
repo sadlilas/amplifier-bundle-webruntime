@@ -1,5 +1,5 @@
 """
-Amplifier Browser - Full Amplifier running in Pyodide with WebGPU.
+Amplifier Web Runtime - Full Amplifier running in Pyodide with WebGPU.
 
 This module provides browser-compatible implementations that enable
 the REAL amplifier-core to run in Pyodide, including:
@@ -632,4 +632,4 @@ __all__ = [
     "create_session",
 ]
 
-print("Amplifier Browser (with Manual Tool Calling) loaded!")
+print("Amplifier Web Runtime (with Manual Tool Calling) loaded!")

@@ -10,4 +10,4 @@ includes:
 
 agents:
   include:
-    - browser:browser-developer
+    - browser:webruntime-developer

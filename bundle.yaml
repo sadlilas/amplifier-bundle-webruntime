@@ -5,7 +5,7 @@ bundle:
     Browser development and runtime bundle for Amplifier.
     
     Default: CLI-safe context and agents for building browser apps.
-    For browser runtime: use behaviors/browser-runtime explicitly.
+    For browser runtime: use behaviors/webruntime-core explicitly.
 
 includes:
-  - bundle: browser:behaviors/browser-agents
+  - bundle: browser:behaviors/webruntime-agents

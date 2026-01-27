@@ -1,11 +1,11 @@
 /**
- * AmplifierBrowser - Browser-based Amplifier runtime
+ * AmplifierWeb - Browser-based Amplifier runtime
  * 
  * This facade handles all Pyodide/wheel complexity internally, providing a clean API
  * for browser-based Amplifier applications.
  * 
  * @example
- * const amp = new AmplifierBrowser({
+ * const amp = new AmplifierWeb({
  *   model: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
  *   onProgress: (stage, pct, msg) => console.log(msg)
  * });
@@ -23,7 +23,7 @@ const EMBEDDED_ASSETS = {
   AMPLIFIER_CORE_WHL_FILENAME: '%%AMPLIFIER_CORE_WHL_FILENAME%%',
   AMPLIFIER_FOUNDATION_WHL: '%%AMPLIFIER_FOUNDATION_WHL%%',
   AMPLIFIER_FOUNDATION_WHL_FILENAME: '%%AMPLIFIER_FOUNDATION_WHL_FILENAME%%',
-  AMPLIFIER_BROWSER_PY: '%%AMPLIFIER_BROWSER_PY%%',
+  AMPLIFIER_WEBRUNTIME_PY: '%%AMPLIFIER_WEBRUNTIME_PY%%',
 };
 
 // =============================================================================
@@ -59,9 +59,9 @@ const ErrorCodes = {
 // AMPLIFIER BROWSER CLASS
 // =============================================================================
 
-class AmplifierBrowser {
+class AmplifierWeb {
   /**
-   * Create a new AmplifierBrowser instance.
+   * Create a new AmplifierWeb instance.
    * 
    * @param {Object} config - Configuration options
    * @param {string} [config.model] - WebLLM model ID (e.g., 'Phi-3.5-mini-instruct-q4f16_1-MLC')
@@ -115,7 +115,7 @@ class AmplifierBrowser {
     if (this._isReady) {
       throw new AmplifierError(
         ErrorCodes.ALREADY_INITIALIZED,
-        'AmplifierBrowser is already initialized',
+        'AmplifierWeb is already initialized',
         { recoverable: false }
       );
     }
@@ -396,7 +396,7 @@ class AmplifierBrowser {
     if (!this._isReady) {
       throw new AmplifierError(
         ErrorCodes.NOT_INITIALIZED,
-        'AmplifierBrowser is not initialized. Call init() first.',
+        'AmplifierWeb is not initialized. Call init() first.',
         { recoverable: true, suggestion: 'Call init() before using other methods' }
       );
     }
@@ -409,7 +409,7 @@ class AmplifierBrowser {
   
   _debug(...args) {
     if (this._config.debug) {
-      console.log('[AmplifierBrowser]', ...args);
+      console.log('[AmplifierWeb]', ...args);
     }
   }
   
@@ -543,7 +543,7 @@ class AmplifierBrowser {
   
   async _loadBrowserModule() {
     try {
-      const moduleCode = atob(EMBEDDED_ASSETS.AMPLIFIER_BROWSER_PY);
+      const moduleCode = atob(EMBEDDED_ASSETS.AMPLIFIER_WEBRUNTIME_PY);
       // Write as a file so Python can import it
       this._pyodide.FS.writeFile('/home/pyodide/amplifier_browser.py', moduleCode);
       this._debug('Wrote amplifier_browser.py to Pyodide filesystem');
@@ -653,14 +653,14 @@ class AmplifierBrowser {
 /**
  * Check if WebGPU is supported in this browser.
  */
-AmplifierBrowser.isWebGPUSupported = () => {
+AmplifierWeb.isWebGPUSupported = () => {
   return typeof navigator !== 'undefined' && !!navigator.gpu;
 };
 
 /**
- * Get the version of AmplifierBrowser.
+ * Get the version of AmplifierWeb.
  */
-AmplifierBrowser.getVersion = () => {
+AmplifierWeb.getVersion = () => {
   return '%%VERSION%%';
 };
 
@@ -670,14 +670,14 @@ AmplifierBrowser.getVersion = () => {
 
 // Export for ES modules
 if (typeof exports !== 'undefined') {
-  exports.AmplifierBrowser = AmplifierBrowser;
+  exports.AmplifierWeb = AmplifierWeb;
   exports.AmplifierError = AmplifierError;
   exports.ErrorCodes = ErrorCodes;
 }
 
 // Export for browsers (global)
 if (typeof window !== 'undefined') {
-  window.AmplifierBrowser = AmplifierBrowser;
+  window.AmplifierWeb = AmplifierWeb;
   window.AmplifierError = AmplifierError;
   window.ErrorCodes = ErrorCodes;
 }
