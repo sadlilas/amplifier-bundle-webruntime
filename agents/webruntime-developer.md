@@ -122,3 +122,7 @@ Before delivering, verify:
 - [ ] Uses Amplifier architecture (Pyodide + amplifier-core)
 - [ ] Has `data-status` attributes
 - [ ] Switched from test model to production model
+
+---
+
+@foundation:context/LANGUAGE_PHILOSOPHY.md
